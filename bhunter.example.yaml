@@ -1,0 +1,4 @@
+# Bitbucket Hunter Configuration
+username: <username>
+app_password: <app_password>
+workspace: bidone  # Optional, defaults to username
