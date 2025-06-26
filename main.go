@@ -146,22 +146,30 @@ func (c *BitbucketClient) getRepository(repoName string) (*Repository, error) {
 }
 
 func (c *BitbucketClient) getBranches(repoFullName string) ([]Branch, error) {
-	url := fmt.Sprintf("%s/repositories/%s/refs/branches", c.baseURL, repoFullName)
-	data, err := c.makeRequest(url)
-	if err != nil {
-		return nil, err
+	var allBranches []Branch
+	url := fmt.Sprintf("%s/repositories/%s/refs/branches?pagelen=100", c.baseURL, repoFullName)
+
+	for url != "" {
+		data, err := c.makeRequest(url)
+		if err != nil {
+			return nil, err
+		}
+
+		var response struct {
+			Values []Branch `json:"values"`
+			Next   string   `json:"next"`
+		}
+
+		err = json.Unmarshal(data, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		allBranches = append(allBranches, response.Values...)
+		url = response.Next
 	}
 
-	var response struct {
-		Values []Branch `json:"values"`
-	}
-
-	err = json.Unmarshal(data, &response)
-	if err != nil {
-		return nil, err
-	}
-
-	return response.Values, nil
+	return allBranches, nil
 }
 
 func (c *BitbucketClient) getFirstCommit(repoFullName string) (*Commit, error) {
@@ -769,7 +777,16 @@ func main() {
 			creator = firstCommit.Author.User.DisplayName
 		}
 
-		if *csv {
+		if *summary {
+			// Create a slice with just this repository for summary calculation
+			repos := []Repository{*repo}
+			stats, err := calculateSummaryStats(repos, client)
+			if err != nil {
+				fmt.Printf("Error calculating summary statistics: %v\n", err)
+				os.Exit(1)
+			}
+			displaySummaryStats(stats, yellow, red, green, cyan)
+		} else if *csv {
 			outputCSVHeader()
 			outputRepositoryCSV(*repo, creator, client, *repoOnly)
 		} else {
