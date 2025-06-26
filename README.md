@@ -170,7 +170,7 @@ Repository: my-web-app
 
 ⚠️ **IMPORTANT**: Never commit your `bhunter.yaml` file containing real credentials to version control!
 
-- Use `bhunter.yaml.example` as a template
+- Use `bhunter.example.yaml` as a template
 - Add `bhunter.yaml` to your `.gitignore`
 - Use environment variables or config files with appropriate permissions
 - App passwords have limited scope compared to account passwords

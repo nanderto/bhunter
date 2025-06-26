@@ -9,6 +9,8 @@ bhunter.yml
 # Go build artifacts
 bhunter.exe
 bhunter
+bkiller.exe
+bkiller
 *.exe
 
 # Go module cache
