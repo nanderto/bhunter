@@ -220,9 +220,13 @@ func (c *BitbucketClient) getFirstCommit(repoFullName string) (*Commit, error) {
 
 func loadConfigFromFile() (*Config, error) {
 	configPaths := []string{
-		"bhunter.yaml",
+		"bhunter.local.yaml", // Local override (highest priority)
+		"bhunter.local.yml",
+		"bhunter.yaml", // Standard config
 		"bhunter.yml",
-		".bhunter.yaml",
+		".bhunter.local.yaml", // Hidden local override
+		".bhunter.local.yml",
+		".bhunter.yaml", // Hidden config
 		".bhunter.yml",
 	}
 
@@ -309,10 +313,14 @@ func printUsage() {
 	fmt.Println("  bhunter -r MyRepo -o | bkiller             # Find old branches in specific repo")
 	fmt.Println("\nConfiguration File:")
 	fmt.Println("  The program will automatically look for config files in this order:")
-	fmt.Println("  1. ./bhunter.yaml or ./bhunter.yml")
-	fmt.Println("  2. ./.bhunter.yaml or ./.bhunter.yml")
-	fmt.Println("  3. ~/bhunter.yaml or ~/bhunter.yml")
-	fmt.Println("  4. ~/.bhunter.yaml or ~/.bhunter.yml")
+	fmt.Println("  1. ./bhunter.local.yaml or ./bhunter.local.yml (local overrides)")
+	fmt.Println("  2. ./bhunter.yaml or ./bhunter.yml (standard config)")
+	fmt.Println("  3. ./.bhunter.local.yaml or ./.bhunter.local.yml (hidden local)")
+	fmt.Println("  4. ./.bhunter.yaml or ./.bhunter.yml (hidden config)")
+	fmt.Println("  5. ~/bhunter.local.yaml or ~/bhunter.local.yml (user local)")
+	fmt.Println("  6. ~/bhunter.yaml or ~/bhunter.yml (user config)")
+	fmt.Println("  7. ~/.bhunter.local.yaml or ~/.bhunter.local.yml (hidden user local)")
+	fmt.Println("  8. ~/.bhunter.yaml or ~/.bhunter.yml (hidden user config)")
 	fmt.Println("\nExample config file (bhunter.yaml):")
 	fmt.Println("  username: your_username")
 	fmt.Println("  app_password: your_app_password")
@@ -448,8 +456,9 @@ func outputCSVHeader() {
 
 // outputRepositoryCSV outputs repository information in CSV format
 func outputRepositoryCSV(repo Repository, creator string, client *BitbucketClient, repoOnly bool) {
-	repoAge := int(time.Since(repo.CreatedOn).Hours() / 24 / 30)
-	lastAccessAge := int(time.Since(repo.UpdatedOn).Hours() / 24 / 30)
+	now := time.Now()
+	repoAge := calculateMonthsDifference(repo.CreatedOn, now)
+	lastAccessAge := calculateMonthsDifference(repo.UpdatedOn, now)
 
 	// Escape commas and quotes in text fields
 	name := escapeCSV(repo.Name)
@@ -487,7 +496,7 @@ func outputRepositoryCSV(repo Repository, creator string, client *BitbucketClien
 		}
 
 		for _, branch := range branches {
-			branchAge := int(time.Since(branch.Target.Date).Hours() / 24 / 30)
+			branchAge := calculateMonthsDifference(branch.Target.Date, now)
 			branchName := escapeCSV(branch.Name)
 			lastPushedBy := escapeCSV(branch.Target.Author.User.DisplayName)
 
@@ -615,6 +624,20 @@ func displaySummaryStats(stats *SummaryStats, yellow, red, green, cyan func(a ..
 		fmt.Printf("  • %s No cleanup needed - workspace is well maintained!\n", green("✓"))
 	}
 	fmt.Println()
+}
+
+// calculateMonthsDifference calculates the accurate difference in months between two dates
+func calculateMonthsDifference(start, end time.Time) int {
+	years := end.Year() - start.Year()
+	months := int(end.Month()) - int(start.Month())
+	totalMonths := years*12 + months
+
+	// Adjust if the day hasn't been reached yet in the current month
+	if end.Day() < start.Day() {
+		totalMonths--
+	}
+
+	return totalMonths
 }
 
 func main() {

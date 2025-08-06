@@ -1,8 +1,12 @@
 # Credentials and config files
 bhunter.yaml
 bhunter.yml
+bhunter.local.yaml
+bhunter.local.yml
 .bhunter.yaml
 .bhunter.yml
+.bhunter.local.yaml
+.bhunter.local.yml
 *.local.yaml
 *.local.yml
 
@@ -12,6 +16,11 @@ bhunter
 bkiller.exe
 bkiller
 *.exe
+
+# Release builds
+release/
+dist/
+build/
 
 # Go module cache
 go.sum

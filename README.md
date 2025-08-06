@@ -96,6 +96,9 @@ bhunter -r BidvestDirect --repo-only
   -w, --workspace    Bitbucket workspace (optional, defaults to username)
   -r, --repo         Repository name (optional, analyze only this repo)
   --repo-only        Show only repository information (no branch details)
+  -o, --output       Output old branch names (>6 months) for piping to bkiller
+  --csv              Output repository information in CSV format
+  --summary          Show summary statistics (repos, branches, old branches)
   -c, --config       Create sample config file
   -h, --help         Show help message
 ```
@@ -122,6 +125,18 @@ bhunter -r MyRepository
 # Using command line credentials
 bhunter -u username -p app_password --repo-only
 
+# Output repository information in CSV format
+bhunter --csv --repo-only
+
+# Output specific repository in CSV format
+bhunter -r MyRepository --csv --repo-only
+
+# Output summary statistics only
+bhunter --summary
+
+# Output old branch names for cleanup (pipe to bkiller)
+bhunter --output
+
 # Create sample config file
 bhunter -c
 ```
@@ -135,6 +150,12 @@ Repository: my-web-app
   Date Created: 2023-01-15 10:30:00
   Date Last Accessed: 2024-12-01 14:22:00
   Main Branch: main
+```
+
+### CSV Output (--csv --repo-only)
+```csv
+Repository Name,Owner,Creator,Date Created,Date Last Accessed,Main Branch,Repo Age (months),Last Access (months),Branch Name,Branch Date Created,Branch Last Pushed,Branch Last Pushed By,Branch Age (months)
+my-web-app,John Smith,John Smith,2023-01-15,2024-12-01,main,23,2,,,,,
 ```
 
 ### Full Analysis
