@@ -95,12 +95,15 @@ bhunter -r BidvestDirect --repo-only
   -p, --password     Bitbucket app password
   -w, --workspace    Bitbucket workspace (optional, defaults to username)
   -r, --repo         Repository name (optional, analyze only this repo)
+  -e, --exclude      Comma-separated list of repository names to exclude
+  -i, --include      Comma-separated list of repository names to include (only these analyzed)
   --repo-only        Show only repository information (no branch details)
   -o, --output       Output old branch names (>6 months) for piping to bkiller
   --csv              Output repository information in CSV format
   --summary          Show summary statistics (repos, branches, old branches)
   -c, --config       Create sample config file
   -h, --help         Show help message
+  --version          Show version information
 ```
 
 ### Configuration File Search Order
@@ -109,6 +112,34 @@ The tool automatically searches for config files in this order:
 2. `./.bhunter.yaml` or `./.bhunter.yml`  
 3. `~/bhunter.yaml` or `~/bhunter.yml`
 4. `~/.bhunter.yaml` or `~/.bhunter.yml`
+
+## Repository Filtering
+
+The tool supports filtering repositories using include/exclude patterns:
+
+### Exclude Filtering (`--exclude` / `-e`)
+- Filters out repositories whose names contain any of the specified terms
+- Uses case-insensitive partial matching
+- Multiple terms can be specified using comma-separated values
+- Example: `--exclude test,demo,archive` excludes any repository containing "test", "demo", or "archive"
+
+### Include Filtering (`--include` / `-i`)
+- Analyzes only repositories whose names contain any of the specified terms  
+- Uses case-insensitive partial matching
+- Multiple terms can be specified using comma-separated values
+- Example: `--include prod,main,core` analyzes only repositories containing "prod", "main", or "core"
+
+### Filter Precedence
+- If both include and exclude filters are specified, the include filter takes precedence
+- A warning message will be displayed when both filters are used together
+- Repository matching is performed before analysis to improve performance
+
+```bash
+# Examples of filtering
+bhunter --exclude old,test,temp --summary          # Exclude old/test/temp repos from summary
+bhunter -i api,web,core --repo-only               # Show only API/web/core repositories
+bhunter --include production --csv                 # Export only production repositories to CSV
+```
 
 ## Examples
 
@@ -136,6 +167,11 @@ bhunter --summary
 
 # Output old branch names for cleanup (pipe to bkiller)
 bhunter --output
+
+# Filter repositories
+bhunter --exclude test,demo,archive    # Exclude repositories containing these terms
+bhunter --include core,main,prod       # Analyze only repositories containing these terms
+bhunter -i api,web --csv               # Include only API and web repositories, output as CSV
 
 # Create sample config file
 bhunter -c

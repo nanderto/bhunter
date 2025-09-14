@@ -16,6 +16,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Version information - can be overridden at build time
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 type Config struct {
 	Username    string `yaml:"username"`
 	AppPassword string `yaml:"app_password"`
@@ -34,6 +41,10 @@ type Repository struct {
 	MainBranch struct {
 		Name string `json:"name"`
 	} `json:"mainbranch"`
+	Project struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	} `json:"project"`
 }
 
 type Branch struct {
@@ -297,12 +308,15 @@ func printUsage() {
 	fmt.Println("  -p, --password     Bitbucket app password")
 	fmt.Println("  -w, --workspace    Bitbucket workspace (optional, defaults to username)")
 	fmt.Println("  -r, --repo         Repository name (optional, analyze only this repo)")
+	fmt.Println("  -e, --exclude      Comma-separated list of project keys/names to exclude")
+	fmt.Println("  -i, --include      Comma-separated list of project keys/names to include (only these analyzed)")
 	fmt.Println("  --repo-only        Show only repository information (no branch details)")
 	fmt.Println("  -o, --output       Output old branch names (>6 months) for piping to bkiller")
 	fmt.Println("  --csv              Output repository information in CSV format")
 	fmt.Println("  --summary          Show summary statistics (repos, branches, old branches)")
 	fmt.Println("  -c, --config       Create sample config file")
 	fmt.Println("  -h, --help         Show this help message")
+	fmt.Println("  --version          Show version information")
 	fmt.Println("\nExamples:")
 	fmt.Println("  bhunter                                    # Analyze all repositories with branches")
 	fmt.Println("  bhunter --repo-only                        # Show only repository information")
@@ -311,6 +325,9 @@ func printUsage() {
 	fmt.Println("  bhunter -r BidvestDirect --repo-only       # Show only BidvestDirect repo info")
 	fmt.Println("  bhunter --output | bkiller                 # Find old branches and pipe to bkiller")
 	fmt.Println("  bhunter -r MyRepo -o | bkiller             # Find old branches in specific repo")
+	fmt.Println("  bhunter -e test,demo                       # Exclude repositories from projects 'test' or 'demo'")
+	fmt.Println("  bhunter --exclude old-project --summary    # Get summary excluding repositories from 'old-project'")
+	fmt.Println("  bhunter --include core,main --csv          # Analyze only repositories from 'core' and 'main' projects, output as CSV")
 	fmt.Println("\nConfiguration File:")
 	fmt.Println("  The program will automatically look for config files in this order:")
 	fmt.Println("  1. ./bhunter.local.yaml or ./bhunter.local.yml (local overrides)")
@@ -326,11 +343,6 @@ func printUsage() {
 	fmt.Println("  app_password: your_app_password")
 	fmt.Println("  workspace: your_workspace")
 	fmt.Println("\nGet app password at: https://bitbucket.org/account/settings/app-passwords/")
-}
-
-func matchesRepoName(repoName, searchName string) bool {
-	// Case-insensitive partial match
-	return strings.Contains(strings.ToLower(repoName), strings.ToLower(searchName))
 }
 
 func outputOldBranches(repo Repository, client *BitbucketClient) {
@@ -357,6 +369,19 @@ func displayRepositoryInfo(repo Repository, creator string, client *BitbucketCli
 	fmt.Printf("  Name: %s\n", repo.Name)
 	fmt.Printf("  Owner: %s (%s)\n", repo.Owner.DisplayName, repo.Owner.Username)
 	fmt.Printf("  Creator: %s\n", creator)
+
+	// Display project information if available
+	if repo.Project.Key != "" || repo.Project.Name != "" {
+		if repo.Project.Key != "" && repo.Project.Name != "" {
+			fmt.Printf("  Project: %s (%s)\n", repo.Project.Name, repo.Project.Key)
+		} else if repo.Project.Key != "" {
+			fmt.Printf("  Project: %s\n", repo.Project.Key)
+		} else {
+			fmt.Printf("  Project: %s\n", repo.Project.Name)
+		}
+	} else {
+		fmt.Printf("  Project: (not assigned to any project)\n")
+	}
 
 	fmt.Printf("  Date Created: %s\n", formatDate(repo.CreatedOn))
 
@@ -640,16 +665,71 @@ func calculateMonthsDifference(start, end time.Time) int {
 	return totalMonths
 }
 
+// Parse exclude/include project filters
+func parseRepoList(repoList string) []string {
+	if repoList == "" {
+		return nil
+	}
+	repos := strings.Split(repoList, ",")
+	for i := range repos {
+		repos[i] = strings.TrimSpace(repos[i])
+	}
+	return repos
+}
+
+// shouldSkipRepo determines if a repository should be skipped based on include/exclude project filters
+func shouldSkipRepo(repo Repository, includeList, excludeList []string) bool {
+	// Get project key or name for matching
+	projectKey := repo.Project.Key
+	projectName := repo.Project.Name
+
+	// Handle repositories not assigned to any project
+	if projectKey == "" && projectName == "" {
+		// If include list is specified and repo has no project, skip it
+		if len(includeList) > 0 {
+			return true // Skip - repo not in any project, but we only want specific projects
+		}
+		// If only exclude list is specified, don't skip repos with no project
+		return false
+	}
+
+	// If include list is specified, only include repos in those projects
+	if len(includeList) > 0 {
+		for _, included := range includeList {
+			if strings.EqualFold(projectKey, included) || strings.EqualFold(projectName, included) {
+				return false // Don't skip - it's in an included project
+			}
+		}
+		return true // Skip - not in any included project
+	}
+
+	// If no include list, check exclude list
+	for _, excluded := range excludeList {
+		if strings.EqualFold(projectKey, excluded) || strings.EqualFold(projectName, excluded) {
+			return true // Skip - it's in an excluded project
+		}
+	}
+
+	return false // Don't skip - not excluded
+}
+
 func main() {
+	// Start timing the operation
+	startTime := time.Now()
+
 	var (
 		username        = flag.String("u", "", "Bitbucket username")
 		usernameAlt     = flag.String("username", "", "Bitbucket username")
 		appPassword     = flag.String("p", "", "Bitbucket app password")
 		appPasswordAlt  = flag.String("password", "", "Bitbucket app password")
-		workspace       = flag.String("w", "", "Bitbucket workspace (optional)")
+		workspace       = flag.String("w", "", "Bitbucket workspace (optional, defaults to username)")
 		workspaceAlt    = flag.String("workspace", "", "Bitbucket workspace (optional)")
-		repoName        = flag.String("r", "", "Repository name (optional)")
+		repoName        = flag.String("r", "", "Repository name (optional, analyze only this repo)")
 		repoNameAlt     = flag.String("repo", "", "Repository name (optional)")
+		excludeRepos    = flag.String("exclude", "", "Comma-separated list of project keys/names to exclude")
+		excludeReposAlt = flag.String("e", "", "Comma-separated list of project keys/names to exclude")
+		includeRepos    = flag.String("include", "", "Comma-separated list of project keys/names to include (only these will be analyzed)")
+		includeReposAlt = flag.String("i", "", "Comma-separated list of project keys/names to include (only these will be analyzed)")
 		repoOnly        = flag.Bool("repo-only", false, "Show only repository information (no branch details)")
 		output          = flag.Bool("o", false, "Output old branch names (>6 months) for piping to bkiller")
 		outputAlt       = flag.Bool("output", false, "Output old branch names (>6 months) for piping to bkiller")
@@ -659,9 +739,22 @@ func main() {
 		createConfigAlt = flag.Bool("config", false, "Create sample config file")
 		help            = flag.Bool("h", false, "Show help")
 		helpAlt         = flag.Bool("help", false, "Show help")
+		versionFlag     = flag.Bool("version", false, "Show version information")
 	)
 
 	flag.Parse()
+
+	// Handle version flag
+	if *versionFlag {
+		fmt.Printf("bhunter version %s\n", version)
+		if commit != "unknown" {
+			fmt.Printf("Commit: %s\n", commit)
+		}
+		if date != "unknown" {
+			fmt.Printf("Built: %s\n", date)
+		}
+		return
+	}
 
 	if *help || *helpAlt {
 		printUsage()
@@ -684,6 +777,12 @@ func main() {
 	}
 	if *repoName == "" && *repoNameAlt != "" {
 		*repoName = *repoNameAlt
+	}
+	if *excludeRepos == "" && *excludeReposAlt != "" {
+		*excludeRepos = *excludeReposAlt
+	}
+	if *includeReposAlt != "" && *includeRepos == "" {
+		*includeRepos = *includeReposAlt
 	}
 
 	// Handle output flag
@@ -761,10 +860,19 @@ func main() {
 			if err != nil {
 				os.Exit(1)
 			}
+
+			// Parse filters for output mode
+			excludeList := parseRepoList(*excludeRepos)
+			includeList := parseRepoList(*includeRepos)
+
+			// Filter repositories in output mode too
 			for _, repo := range repos {
-				outputOldBranches(repo, client)
+				if !shouldSkipRepo(repo, includeList, excludeList) {
+					outputOldBranches(repo, client)
+				}
 			}
 		}
+		// Don't show timing in output mode (used for piping)
 		return
 	}
 	yellow := color.New(color.FgYellow).SprintFunc()
@@ -819,6 +927,12 @@ func main() {
 		} else {
 			displayRepositoryInfo(*repo, creator, client, yellow, red, bold, green, cyan, *repoOnly)
 		}
+
+		// Show elapsed time for single repository analysis
+		elapsed := time.Since(startTime)
+		if !*csv && !*summary {
+			fmt.Printf("\nOperation completed in %v\n", elapsed)
+		}
 		return
 	}
 	// Otherwise, fetch all repositories
@@ -832,6 +946,34 @@ func main() {
 		}
 		os.Exit(1)
 	}
+
+	// Parse filters and apply repository filtering
+	excludeList := parseRepoList(*excludeRepos)
+	includeList := parseRepoList(*includeRepos)
+
+	// Validate include/exclude logic
+	if len(includeList) > 0 && len(excludeList) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: Both --include and --exclude specified. Include filter takes precedence.\n")
+	}
+
+	var filteredRepos []Repository
+	filteredCount := 0
+	for _, repo := range repos {
+		if !shouldSkipRepo(repo, includeList, excludeList) {
+			filteredRepos = append(filteredRepos, repo)
+		} else {
+			filteredCount++
+		}
+	}
+
+	if !*csv && !*summary && filteredCount > 0 {
+		if len(includeList) > 0 {
+			fmt.Printf("Filtered to %d repositories from included projects\n", len(filteredRepos))
+		} else {
+			fmt.Printf("Excluded %d repositories from excluded projects\n", filteredCount)
+		}
+	}
+	repos = filteredRepos
 
 	if !*csv && !*summary {
 		fmt.Printf("\nFound %d repositories:\n", len(repos))
@@ -848,6 +990,10 @@ func main() {
 			os.Exit(1)
 		}
 		displaySummaryStats(stats, yellow, red, green, cyan)
+
+		// Show elapsed time for summary
+		elapsed := time.Since(startTime)
+		fmt.Printf("Operation completed in %v\n", elapsed)
 		return
 	}
 
@@ -862,5 +1008,11 @@ func main() {
 		for _, result := range repoResults {
 			displayRepositoryInfo(result.Repository, result.Creator, client, yellow, red, bold, green, cyan, *repoOnly)
 		}
+	}
+
+	// Show elapsed time for multi-repository analysis
+	elapsed := time.Since(startTime)
+	if !*csv {
+		fmt.Printf("\nOperation completed in %v\n", elapsed)
 	}
 }
